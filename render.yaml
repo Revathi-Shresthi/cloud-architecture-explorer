@@ -1,0 +1,12 @@
+# Render Blueprint: New > Blueprint, then choose this repository.
+services:
+  - type: web
+    name: cloud-architecture-explorer
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile.render
+    healthCheckPath: /api/architectures
+    autoDeploy: true
+    envVars:
+      - key: GEMINI_API_KEY
+        sync: false   # Render asks for the value; it is not stored in the repository

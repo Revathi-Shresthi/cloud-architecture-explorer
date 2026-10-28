@@ -18,13 +18,11 @@ from typing import Optional
 
 import chromadb
 import numpy as np
-import ollama
 
 from components import KINDS, kinds_in
+from embeddings import COLLECTION, _normalize, embed
 
-EMBED_MODEL = "nomic-embed-text"
 DB_PATH = "db"
-COLLECTION = "cloud"
 CANDIDATES = 12   # results taken from each search before fusion
 RRF_K = 60        # standard RRF constant: lower values favour the top ranks more
 MODES = ("hybrid", "vector", "bm25")
@@ -72,14 +70,9 @@ class BM25:
         return [i for _, i in scored[:k]]
 
 
-def _normalize(m: np.ndarray) -> np.ndarray:
-    return m / np.maximum(np.linalg.norm(m, axis=-1, keepdims=True), 1e-12)
-
-
 def embed_queries(texts: list) -> np.ndarray:
     """Unit-length query embeddings, one row per text."""
-    res = ollama.embed(model=EMBED_MODEL, input=[f"search_query: {t}" for t in texts])
-    return _normalize(np.asarray(res["embeddings"], dtype=np.float32))
+    return embed(texts, "query")
 
 
 class Retriever:

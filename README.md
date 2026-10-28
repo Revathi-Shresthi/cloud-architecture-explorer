@@ -100,6 +100,16 @@ turns off deletes, and keeps the 25 newest imports.
 2. In the Space **Settings → Variables and secrets**, add the secret `GEMINI_API_KEY`.
 3. Push this folder to the Space repository. The first build takes about 10 to 20 minutes.
 
+### Render (free plan)
+
+`Dockerfile.render` is a smaller image with no Ollama: embeddings also come from Gemini
+(`EMBED_PROVIDER=gemini`, `embeddings.py`), so the app uses about 150 MB of the 512 MB.
+
+1. On https://render.com, click **New → Blueprint** and choose this GitHub repository (`render.yaml`).
+2. Enter `GEMINI_API_KEY` when Render asks. The build uses it to make the document index (about 4 minutes).
+3. The free service sleeps after 15 minutes without visitors; the first request then takes about 1 minute.
+   Imported architectures are lost when it restarts.
+
 To run the same container locally: `docker compose up --build`, then open http://localhost:7860.
 
 ## API

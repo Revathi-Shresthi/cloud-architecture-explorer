@@ -9,11 +9,10 @@ import re
 
 import numpy as np
 
+from embeddings import EMBED_PROVIDER, SUPPORT_THRESHOLDS
 from retrieval import embed_queries
 
-# Cosine similarity with nomic-embed-text. Measured on the AWS Well-Architected PDF: off-topic and
-# generic sentences scored 0.52-0.59, sentences supported by a chunk scored 0.64-0.72.
-SUPPORT_THRESHOLD = 0.62
+SUPPORT_THRESHOLD = SUPPORT_THRESHOLDS[EMBED_PROVIDER]
 MIN_WORDS = 6             # shorter fragments ("Here is why:") are not checked
 CITE_RE = re.compile(r"\[(\d+)\]")
 SPLIT_RE = re.compile(r"(?<=[.!?])\s+|\n+")

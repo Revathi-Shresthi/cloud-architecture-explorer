@@ -33,3 +33,18 @@ jobs:
           curl -sf http://localhost:7860/ | grep -q "Cloud Architecture Explorer"
       - if: failure()
         run: docker logs app || true
+
+  render:
+    # Builds the Render image without a key (no document index) and checks that the app starts.
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -f Dockerfile.render -t cloud-explorer-render .
+      - name: Smoke test
+        run: |
+          docker run -d --name app -p 10000:10000 cloud-explorer-render
+          for i in $(seq 1 60); do curl -sf http://localhost:10000/api/architectures && break; sleep 2; done
+          curl -sf http://localhost:10000/ | grep -q "Cloud Architecture Explorer"
+      - if: failure()
+        run: docker logs app || true

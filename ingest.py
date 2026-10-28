@@ -10,14 +10,12 @@ import argparse
 from pathlib import Path
 
 import chromadb
-import ollama
 from pypdf import PdfReader
 
 from components import tag_components
+from embeddings import COLLECTION, EMBED_PROVIDER, embed
 
-EMBED_MODEL = "nomic-embed-text"
 DB_PATH = "db"
-COLLECTION = "cloud"
 CHUNK_WORDS = 220
 OVERLAP_WORDS = 40
 BATCH_SIZE = 32
@@ -46,11 +44,6 @@ def read_pages(path: Path, max_pages):
         yield 1, path.read_text(encoding="utf-8", errors="ignore")
 
 
-def embed(texts):
-    res = ollama.embed(model=EMBED_MODEL, input=[f"search_document: {t}" for t in texts])
-    return res["embeddings"]
-
-
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("folder", help="Folder with .pdf, .md or .txt files")
@@ -69,6 +62,7 @@ def main():
         pass
     col = client.create_collection(COLLECTION)
 
+    print(f"Embeddings: {EMBED_PROVIDER}, collection {COLLECTION}")
     ids, docs, metas = [], [], []
     total = 0
 
@@ -76,7 +70,7 @@ def main():
         nonlocal ids, docs, metas, total
         if not docs:
             return
-        col.add(ids=ids, documents=docs, metadatas=metas, embeddings=embed(docs))
+        col.add(ids=ids, documents=docs, metadatas=metas, embeddings=embed(docs, "document").tolist())
         total += len(docs)
         print(f"  stored {total} chunks")
         ids, docs, metas = [], [], []
