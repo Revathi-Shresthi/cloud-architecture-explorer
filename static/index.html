@@ -1,0 +1,657 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Cloud Architecture Explorer</title>
+<style>
+  :root { --bg:#0d1117; --panel:#161b22; --text:#e6edf3; --muted:#8b949e; --accent:#2ac3de; --border:#30363d;
+          --failed:#ff3b3b; --broken:#ff8a5c; --idle:#8a7a4a; --good:#7ee787; --warn:#e3b341; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: system-ui, sans-serif; background:var(--bg); color:var(--text); height:100vh; display:flex; overflow:hidden; }
+  #viewer { flex:1; position:relative; min-height:50vh; }
+  #viewer canvas { display:block; }
+  #hint { position:absolute; top:12px; left:12px; color:var(--muted); font-size:13px; z-index:2; }
+  #selected { position:absolute; bottom:12px; left:12px; font-size:18px; font-weight:600; z-index:2; max-width:60%; }
+  #failBtn { position:absolute; bottom:12px; right:12px; z-index:2; padding:9px 14px; border-radius:8px; border:1px solid var(--failed);
+             background:transparent; color:var(--failed); font-weight:600; cursor:pointer; }
+  #failBtn.on { background:var(--failed); color:#fff; }
+  #legend { position:absolute; top:12px; right:12px; z-index:2; font-size:12px; background:rgba(22,27,34,.9); border:1px solid var(--border);
+            border-radius:8px; padding:8px 10px; line-height:1.7; }
+  #legend span { display:inline-block; width:10px; height:10px; border-radius:2px; margin-right:6px; vertical-align:middle; }
+  .label { color:var(--text); font-size:12px; background:rgba(13,17,23,.75); padding:2px 6px; border-radius:4px; pointer-events:none; white-space:nowrap; }
+  #panel { width:450px; background:var(--panel); border-left:1px solid var(--border); display:flex; flex-direction:column; }
+  #panel header { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:8px; padding:12px 16px 8px; }
+  #panel h1 { font-size:17px; margin:0; }
+  #toolbar { display:flex; flex-wrap:wrap; gap:6px; padding:0 16px 10px; border-bottom:1px solid var(--border); }
+  #toolbar select { flex:1; min-width:0; }
+  select { padding:5px 6px; border-radius:6px; border:1px solid var(--border); background:var(--bg); color:var(--text); font-size:12px; }
+  .ghost { font-size:12px; padding:5px 9px; border-radius:6px; border:1px solid var(--border); background:transparent; color:var(--text); cursor:pointer; }
+  .ghost:hover { border-color:var(--accent); }
+  #messages { flex:1; overflow-y:auto; padding:14px; display:flex; flex-direction:column; gap:10px; }
+  .msg { padding:10px 12px; border-radius:10px; line-height:1.45; white-space:pre-wrap; }
+  .user { background:#1f3a5f; align-self:flex-end; max-width:85%; }
+  .user.fail { background:#5f1f24; }
+  .bot { background:#1c2128; }
+  .bot.error { border:1px solid var(--failed); }
+  .meta { font-size:11px; color:var(--muted); margin-top:6px; }
+  .grounding { font-size:12px; margin-top:8px; padding-top:6px; border-top:1px solid var(--border); }
+  .grounding .bad { color:var(--broken); margin-top:3px; }
+  .steps { font-size:12px; color:var(--muted); margin-bottom:8px; }
+  .steps div { margin-top:2px; }
+  .steps b { color:var(--accent); font-weight:600; }
+  .report h3 { font-size:14px; margin:4px 0 6px; }
+  .report ol { margin:4px 0 8px 18px; padding:0; }
+  .finding { border:1px solid var(--border); border-radius:8px; padding:8px 10px; margin-top:8px; cursor:pointer; white-space:normal; }
+  .finding:hover, .finding.on { border-color:var(--accent); }
+  .finding .head { font-weight:600; }
+  .finding .small { font-size:12px; color:var(--muted); margin-top:4px; }
+  .sev { display:inline-block; font-size:11px; font-weight:700; padding:1px 7px; border-radius:999px; margin-right:6px; color:#0d1117; text-transform:uppercase; }
+  .sev.high { background:var(--failed); } .sev.medium { background:var(--warn); } .sev.low { background:#7aa2f7; }
+  .sources { font-size:12px; color:var(--muted); margin-top:8px; }
+  .sources div { margin-top:4px; }
+  #chips { display:flex; flex-wrap:wrap; gap:6px; padding:10px 12px 0; }
+  .chip { font-size:12px; padding:6px 10px; border-radius:999px; border:1px solid var(--border); background:transparent; color:var(--text); cursor:pointer; }
+  .chip:hover { border-color:var(--accent); }
+  form { display:flex; gap:8px; padding:12px; }
+  input { flex:1; padding:10px; border-radius:8px; border:1px solid var(--border); background:var(--bg); color:var(--text); }
+  #send { padding:10px 16px; border:0; border-radius:8px; background:var(--accent); color:#04141a; font-weight:600; cursor:pointer; }
+  button:disabled { opacity:.5; cursor:default; }
+  @media (max-width: 800px) { body { flex-direction:column; } #panel { width:100%; height:55vh; } }
+</style>
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+} }
+</script>
+</head>
+<body>
+  <div id="viewer">
+    <div id="hint">Drag to rotate · Scroll to zoom · Click a component</div>
+    <div id="legend" hidden>
+      <div><span style="background:var(--failed)"></span>Failed</div>
+      <div><span style="background:var(--broken)"></span>Requests through it fail</div>
+      <div><span style="background:var(--idle)"></span>No traffic / not observed</div>
+    </div>
+    <div id="selected">No component selected</div>
+    <button id="failBtn" disabled>Simulate failure</button>
+  </div>
+  <div id="panel">
+    <header>
+      <h1>Cloud Architecture Explorer</h1>
+      <select id="engine" title="Who answers">
+        <option value="local">Local RAG (Ollama)</option>
+        <option value="agent">Agent (Gemini)</option>
+      </select>
+      <select id="mode" title="Retrieval method">
+        <option value="hybrid">Hybrid search</option>
+        <option value="vector">Vector only</option>
+        <option value="bm25">Keyword only</option>
+      </select>
+    </header>
+    <div id="toolbar">
+      <select id="arch" title="Architecture"></select>
+      <button class="ghost" id="importBtn" title="Import a Terraform (.tf) or Kubernetes (.yaml) file">Import IaC…</button>
+      <button class="ghost" id="reviewBtn" title="Multi-agent architecture review (Gemini)">Review</button>
+      <button class="ghost" id="deleteBtn" title="Delete this imported architecture" hidden>Delete</button>
+      <button class="ghost" id="clearBtn" title="Start a new conversation">New chat</button>
+      <input type="file" id="file" accept=".tf,.yaml,.yml" hidden />
+    </div>
+    <div id="messages"></div>
+    <div id="chips">
+      <button class="chip">What does this component do?</button>
+      <button class="chip">What breaks if this fails?</button>
+      <button class="chip">How do I make it highly available?</button>
+      <button class="chip">How do I secure it?</button>
+    </div>
+    <form id="form">
+      <input id="q" placeholder="Ask about the selected component…" autocomplete="off" />
+      <button id="send">Ask</button>
+    </form>
+  </div>
+
+<script type="module">
+import * as THREE from "three";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { CSS2DRenderer, CSS2DObject } from "three/addons/renderers/CSS2DRenderer.js";
+
+const COLORS = { failed: 0xff3b3b, broken: 0xff8a5c, idle: 0x8a7a4a };
+const SEVERITY_COLORS = { high: 0xff3b3b, medium: 0xe3b341, low: 0x7aa2f7 };
+const WELCOME = "Click a component in the 3D architecture, then ask a question. Answers come from the cloud documentation, " +
+  "with file and page citations, and a grounding check of each sentence.\n\n" +
+  "Click \"Simulate failure\" to see which components a failure affects. " +
+  "Click \"Import IaC\" to draw your own Terraform or Kubernetes architecture.";
+
+// ---------- Scene ----------
+const viewer = document.getElementById("viewer");
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 400);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+renderer.setPixelRatio(window.devicePixelRatio);
+viewer.appendChild(renderer.domElement);
+
+const labelRenderer = new CSS2DRenderer();
+labelRenderer.domElement.style.position = "absolute";
+labelRenderer.domElement.style.top = "0";
+labelRenderer.domElement.style.pointerEvents = "none";
+viewer.appendChild(labelRenderer.domElement);
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+
+scene.add(new THREE.AmbientLight(0xffffff, 0.55));
+const sun = new THREE.DirectionalLight(0xffffff, 1.1);
+sun.position.set(5, 10, 6);
+scene.add(sun);
+
+const grid = new THREE.GridHelper(40, 40, 0x30363d, 0x1c2128);
+grid.position.y = -0.01;
+scene.add(grid);
+
+// Translucent "private network" box, resized for each architecture (unit box, scaled)
+const vpc = new THREE.Mesh(
+  new THREE.BoxGeometry(1, 2, 1),
+  new THREE.MeshBasicMaterial({ color: 0x2ac3de, transparent: true, opacity: 0.04, depthWrite: false })
+);
+vpc.raycast = () => {}; // not clickable
+const vpcEdges = new THREE.LineSegments(new THREE.EdgesGeometry(vpc.geometry), new THREE.LineBasicMaterial({ color: 0x2ac3de, transparent: true, opacity: 0.35 }));
+const vpcLabel = document.createElement("div");
+vpcLabel.className = "label";
+vpcLabel.textContent = "Private network";
+const vpcLabelObj = new CSS2DObject(vpcLabel);
+scene.add(vpc, vpcEdges, vpcLabelObj);
+
+// ---------- State ----------
+let arch = null;          // current architecture from /api/architectures/{id}
+let meshes = {};          // key -> mesh
+let links = [];           // { a, b, pa, pb, line, packet, t }
+let selected = null;
+let failed = null;        // key of the component in failure simulation
+let impact = null;        // { upstream, downstream, blind }
+let history = [];         // [{ question, answer }] for follow-up questions
+let highlight = null;     // Map key -> color, for components named in a review finding
+let agentReady = false;
+let demo = false;         // public demo: no deletes, request limits
+
+const $ = id => document.getElementById(id);
+const failBtn = $("failBtn"), legend = $("legend"), archSelect = $("arch"), modeSelect = $("mode"), engineSelect = $("engine");
+const messages = $("messages"), input = $("q"), send = $("send");
+const comp = key => arch.components[key];
+
+// ---------- Build an architecture ----------
+function clearScene() {
+  for (const m of Object.values(meshes)) { scene.remove(m); m.geometry.dispose(); m.material.dispose(); }
+  for (const l of links) {
+    scene.remove(l.line, l.packet);
+    l.line.geometry.dispose(); l.line.material.dispose(); l.packet.geometry.dispose(); l.packet.material.dispose();
+  }
+  meshes = {}; links = [];
+}
+
+function build(data) {
+  clearScene();
+  arch = data;
+  for (const [key, c] of Object.entries(arch.components)) {
+    const [w, h, d] = c.size || [1, 0.8, 1];
+    const mesh = new THREE.Mesh(
+      new THREE.BoxGeometry(w, h, d),
+      new THREE.MeshStandardMaterial({ color: c.color, roughness: 0.45, emissive: 0x000000, transparent: true })
+    );
+    mesh.position.set(c.pos[0], h / 2, c.pos[1]);
+    mesh.userData = { key, baseY: h / 2, color: c.color };
+    const div = document.createElement("div");
+    div.className = "label";
+    div.textContent = c.label;
+    const lbl = new CSS2DObject(div);
+    lbl.position.set(0, h / 2 + 0.35, 0);
+    mesh.add(lbl);
+    scene.add(mesh);
+    meshes[key] = mesh;
+  }
+  for (const [a, b] of arch.links) {
+    const pa = meshes[a].position.clone().setY(0.3);
+    const pb = meshes[b].position.clone().setY(0.3);
+    const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints([pa, pb]), new THREE.LineBasicMaterial({ color: 0x484f58 }));
+    // A small "packet" that travels along each link to show traffic
+    const packet = new THREE.Mesh(new THREE.SphereGeometry(0.07, 12, 8), new THREE.MeshBasicMaterial({ color: 0xffffff }));
+    scene.add(line, packet);
+    links.push({ a, b, pa, pb, line, packet, t: Math.random() });
+  }
+
+  const box = arch.boundary;
+  for (const o of [vpc, vpcEdges, vpcLabelObj]) o.visible = !!box;
+  if (box) {
+    const [x0, x1, z0, z1] = box;
+    vpc.scale.set(x1 - x0, 1, z1 - z0);
+    vpc.position.set((x0 + x1) / 2, 1, (z0 + z1) / 2);
+    vpcEdges.scale.copy(vpc.scale);
+    vpcEdges.position.copy(vpc.position);
+    vpcLabelObj.position.set(x0 + 1.3, 2.1, z0);
+  }
+  frameCamera();
+}
+
+function frameCamera() {
+  const bounds = new THREE.Box3();
+  for (const m of Object.values(meshes)) bounds.expandByObject(m);
+  const center = bounds.getCenter(new THREE.Vector3());
+  const radius = Math.max(bounds.getSize(new THREE.Vector3()).length() / 2, 4);
+  controls.target.set(center.x, 0, center.z);
+  camera.position.set(center.x, radius * 1.1 + 2, center.z + radius * 1.35 + 2);
+  controls.update();
+}
+
+async function loadArchitecture(id) {
+  const res = await fetch(`/api/architectures/${encodeURIComponent(id)}`);
+  if (!res.ok) { addMessage(`Cannot load the architecture "${id}".`, "bot error"); return; }
+  build(await res.json());
+  archSelect.value = arch.id;
+  $("deleteBtn").hidden = arch.source === "built-in" || demo;
+  selected = null; failed = null; impact = null; highlight = null;
+  paint();
+  newChat();
+}
+
+async function loadArchitectureList() {
+  const list = await (await fetch("/api/architectures")).json();
+  archSelect.innerHTML = "";
+  for (const a of list) archSelect.add(new Option(`${a.name} (${a.source})`, a.id));
+}
+
+// ---------- Selection and failure simulation ----------
+function paint() {
+  const linked = new Set(links.filter(l => l.a === selected || l.b === selected).flatMap(l => [l.a, l.b]));
+  const up = new Set(impact?.upstream || []);
+  const down = new Set([...(impact?.downstream || []), ...(impact?.blind || [])]);
+  for (const [k, m] of Object.entries(meshes)) {
+    let color = m.userData.color, emissive = 0x000000, opacity = 1;
+    if (failed) {
+      if (k === failed) { color = COLORS.failed; emissive = 0x550000; }
+      else if (up.has(k)) color = COLORS.broken;
+      else if (down.has(k)) color = COLORS.idle;
+      else opacity = 0.3;
+    } else if (highlight) {
+      if (highlight.has(k)) { color = highlight.get(k); emissive = 0x222222; }
+      else opacity = 0.3;
+    } else if (selected) {
+      if (k === selected) emissive = 0x444444;
+      if (!linked.has(k)) opacity = 0.3;
+    }
+    m.material.color.set(color);
+    m.material.emissive.setHex(emissive);
+    m.material.opacity = opacity;
+  }
+  for (const l of links) {
+    // No traffic moves on a link that touches the failed component or a component behind it
+    const dead = failed && [l.a, l.b].some(n => n === failed || down.has(n));
+    const active = !failed && selected && (l.a === selected || l.b === selected);
+    l.line.material.color.setHex(dead ? COLORS.failed : active ? 0x2ac3de : 0x484f58);
+    l.packet.visible = !dead;
+    l.packet.material.color.setHex(active ? 0x2ac3de : 0xffffff);
+  }
+  legend.hidden = !failed;
+  failBtn.disabled = !selected;
+  failBtn.classList.toggle("on", !!failed);
+  failBtn.textContent = failed ? "Restore component" : "Simulate failure";
+  $("selected").textContent =
+    failed ? `FAILED: ${comp(failed).label}` : selected ? `Selected: ${comp(selected).label}` : "No component selected";
+}
+
+function select(key) {
+  // Put the previously selected component back on the floor
+  if (selected && meshes[selected]) meshes[selected].position.y = meshes[selected].userData.baseY;
+  selected = key;
+  failed = null;
+  impact = null;
+  highlight = null;
+  document.querySelectorAll(".finding.on").forEach(f => f.classList.remove("on"));
+  paint();
+}
+
+failBtn.addEventListener("click", async () => {
+  if (failed) { failed = null; impact = null; paint(); return; }
+  if (!selected) return;
+  impact = await (await fetch(`/api/architectures/${arch.id}/impact/${encodeURIComponent(selected)}`)).json();
+  failed = selected;
+  paint();
+  ask(`What happens when the ${comp(failed).label} fails?`, true);
+});
+
+const raycaster = new THREE.Raycaster();
+const pointer = new THREE.Vector2();
+let downPos = null;
+renderer.domElement.addEventListener("pointerdown", e => { downPos = [e.clientX, e.clientY]; });
+renderer.domElement.addEventListener("pointerup", e => {
+  if (!downPos || Math.hypot(e.clientX - downPos[0], e.clientY - downPos[1]) > 5) return; // was a drag
+  const r = renderer.domElement.getBoundingClientRect();
+  pointer.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
+  raycaster.setFromCamera(pointer, camera);
+  const hit = raycaster.intersectObjects(Object.values(meshes))[0];
+  select(hit ? hit.object.userData.key : null);
+});
+
+// ---------- Render loop ----------
+function resize() {
+  const w = viewer.clientWidth, h = viewer.clientHeight;
+  renderer.setSize(w, h);
+  labelRenderer.setSize(w, h);
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+}
+window.addEventListener("resize", resize);
+resize();
+
+const clock = new THREE.Clock();
+renderer.setAnimationLoop(() => {
+  const dt = clock.getDelta(), time = clock.elapsedTime;
+  for (const l of links) {
+    l.t = (l.t + dt * 0.35) % 1;
+    l.packet.position.lerpVectors(l.pa, l.pb, l.t);
+  }
+  if (selected && meshes[selected]) {
+    const m = meshes[selected];
+    m.position.y = m.userData.baseY + Math.sin(time * 3) * 0.08;
+  }
+  controls.update();
+  renderer.render(scene, camera);
+  labelRenderer.render(scene, camera);
+});
+
+// ---------- Architecture toolbar ----------
+archSelect.addEventListener("change", () => loadArchitecture(archSelect.value));
+$("importBtn").addEventListener("click", () => $("file").click());
+$("file").addEventListener("change", async e => {
+  const file = e.target.files[0];
+  e.target.value = "";
+  if (!file) return;
+  const res = await fetch("/api/architectures/import", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ filename: file.name, content: await file.text() }),
+  });
+  const data = await res.json();
+  if (!res.ok) { addMessage(`Cannot import ${file.name}: ${data.detail}`, "bot error"); return; }
+  await loadArchitectureList();
+  await loadArchitecture(data.id);
+  addMessage(`Imported ${data.components} components and ${data.links} links from ${file.name} (${data.source}).`, "bot");
+});
+$("deleteBtn").addEventListener("click", async () => {
+  const btn = $("deleteBtn");
+  // Two-step confirmation inside the page
+  if (btn.dataset.armed !== "1") {
+    btn.dataset.armed = "1"; btn.textContent = "Confirm delete";
+    setTimeout(() => { btn.dataset.armed = ""; btn.textContent = "Delete"; }, 3000);
+    return;
+  }
+  btn.dataset.armed = ""; btn.textContent = "Delete";
+  await fetch(`/api/architectures/${arch.id}`, { method: "DELETE" });
+  await loadArchitectureList();
+  await loadArchitecture("default");
+});
+$("clearBtn").addEventListener("click", newChat);
+
+// ---------- Chat ----------
+function addMessage(text, cls) {
+  const div = document.createElement("div");
+  div.className = `msg ${cls}`;
+  div.textContent = text;
+  messages.appendChild(div);
+  messages.scrollTop = messages.scrollHeight;
+  return div;
+}
+
+function newChat() {
+  history = [];
+  messages.innerHTML = "";
+  addMessage(`${WELCOME}\n\nArchitecture: ${arch.name}`, "bot");
+}
+
+function showSources(container, sources) {
+  const src = document.createElement("div");
+  src.className = "sources";
+  for (const s of sources) {
+    const line = document.createElement("div");
+    line.textContent = `[${s.n}] ${s.source}, page ${s.page}: ${s.snippet}`;
+    src.appendChild(line);
+  }
+  container.appendChild(src);
+}
+
+function showGrounding(container, g) {
+  if (!g) return;
+  const div = document.createElement("div");
+  div.className = "grounding";
+  const pct = Math.round(g.score * 100);
+  div.style.color = pct >= 80 ? "var(--good)" : pct >= 50 ? "var(--warn)" : "var(--broken)";
+  div.textContent = `Grounding ${pct}%: ${g.supported} of ${g.total} sentences are supported by the sources.`;
+  for (const s of g.sentences.filter(s => !s.supported)) {
+    const bad = document.createElement("div");
+    bad.className = "bad";
+    bad.textContent = `Check: "${s.text.length > 140 ? s.text.slice(0, 140) + "…" : s.text}" (similarity ${s.similarity})`;
+    div.appendChild(bad);
+  }
+  if (g.invalid_citations.length) {
+    const bad = document.createElement("div");
+    bad.className = "bad";
+    bad.textContent = `Citations that do not exist: ${g.invalid_citations.map(n => `[${n}]`).join(", ")}`;
+    div.appendChild(bad);
+  }
+  container.appendChild(div);
+}
+
+function showMetrics(container, m) {
+  if (!m) return;
+  const sec = ms => ms == null ? null : `${(ms / 1000).toFixed(1)} s`;
+  const meta = document.createElement("div");
+  meta.className = "meta";
+  meta.textContent = [
+    m.total_ms != null ? `total ${sec(m.total_ms)}` : null,
+    m.retrieval_ms != null ? `search ${m.retrieval_ms} ms` : null,
+    m.first_token_ms != null ? `first word ${sec(m.first_token_ms)}` : null,
+    m.tokens_per_s ? `${m.tokens_per_s} tokens/s` : null,
+    m.model_calls ? `${m.model_calls} model calls, ${m.tool_calls} tool calls` : null,
+    m.mode, m.model,
+  ].filter(Boolean).join(" · ");
+  container.appendChild(meta);
+}
+
+// The server's reason for a refused request (rate limit, unknown architecture, ...)
+async function errorText(res) {
+  try { return (await res.json()).detail || res.statusText; } catch { return res.statusText; }
+}
+
+// Read a newline-delimited JSON stream and call handle() for each event
+async function readEvents(res, handle) {
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    let nl;
+    while ((nl = buffer.indexOf("\n")) >= 0) {
+      const line = buffer.slice(0, nl).trim();
+      buffer = buffer.slice(nl + 1);
+      if (line) handle(JSON.parse(line));
+    }
+  }
+}
+
+function addStep(stepsDiv, ev) {
+  const line = document.createElement("div");
+  const who = document.createElement("b");
+  who.textContent = `${ev.agent}: `;
+  line.append(who, ev.text);
+  stepsDiv.appendChild(line);
+  messages.scrollTop = messages.scrollHeight;
+}
+
+async function ask(question, failure = false) {
+  if (!question) return;
+  const mode = modeSelect.value, useAgent = engineSelect.value === "agent";
+  let started = false, sources = [], done = null, answerText = "", hadError = false;
+  addMessage(selected ? `[${comp(selected).label}] ${question}` : question, failure ? "user fail" : "user");
+  input.value = "";
+  send.disabled = true;
+
+  const pending = addMessage("", "bot");
+  const steps = document.createElement("div");
+  steps.className = "steps";
+  const answer = document.createTextNode(useAgent ? "The agent is working…" : "Searching the documents…");
+  pending.append(steps, answer);
+  const start = performance.now();
+  const timer = setInterval(() => {
+    if (!started) answer.data = `Thinking… ${Math.round((performance.now() - start) / 1000)} s`;
+  }, 1000);
+
+  // Each line of the response is one JSON event: sources, token, error, or done
+  const handle = ev => {
+    if (ev.type === "step") addStep(steps, ev);
+    else if (ev.type === "sources") sources = ev.sources;
+    else if (ev.type === "token" || ev.type === "error") {
+      if (!started) { started = true; answer.data = ""; }
+      if (ev.type === "error") { hadError = true; pending.classList.add("error"); }
+      else answerText += ev.text;
+      answer.data += ev.text;
+      messages.scrollTop = messages.scrollHeight;
+    } else if (ev.type === "done") done = ev;
+  };
+
+  try {
+    const res = await fetch(useAgent ? "/api/agent/ask/stream" : "/api/ask/stream", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ question, architecture: arch.id, component: selected, mode, failure, history }),
+    });
+    if (!res.ok) {
+      started = true;
+      answer.data = await errorText(res);
+      pending.classList.add("error");
+      return;
+    }
+    await readEvents(res, handle);
+    if (sources.length) showSources(pending, sources);
+    showGrounding(pending, done?.grounding);
+    showMetrics(pending, done?.metrics);
+    if (!hadError && answerText) history = [...history, { question, answer: answerText }].slice(-2);
+  } catch {
+    answer.data = "Cannot reach the backend. Is uvicorn running?";
+  } finally {
+    clearInterval(timer);
+    send.disabled = false;
+    messages.scrollTop = messages.scrollHeight;
+  }
+}
+
+$("form").addEventListener("submit", e => { e.preventDefault(); ask(input.value.trim(), !!failed); });
+document.querySelectorAll(".chip").forEach(b => b.addEventListener("click", () => ask(b.textContent, !!failed)));
+
+// ---------- Multi-agent architecture review ----------
+function showFinding(container, f) {
+  const div = document.createElement("div");
+  div.className = "finding";
+  const head = document.createElement("div");
+  head.className = "head";
+  const sev = document.createElement("span");
+  sev.className = `sev ${f.severity}`;
+  sev.textContent = f.severity;
+  head.append(sev, `${f.title}`);
+  const small = (text) => { const d = document.createElement("div"); d.className = "small"; d.textContent = text; return d; };
+  div.append(head);
+  div.append(small(`${f.pillar} · ${f.components.map(k => comp(k).label).join(", ") || "whole architecture"}`));
+  if (f.evidence) div.append(small(`Evidence: ${f.evidence}`));
+  div.append(small(`Recommendation: ${f.recommendation}${f.citations.length ? " " + f.citations.map(n => `[${n}]`).join("") : ""}`));
+  // Click a finding to show its components in the 3D view
+  div.addEventListener("click", () => {
+    const on = !div.classList.contains("on");
+    select(null);
+    if (on && f.components.length) {
+      div.classList.add("on");
+      highlight = new Map(f.components.map(k => [k, SEVERITY_COLORS[f.severity]]));
+      paint();
+    }
+  });
+  container.appendChild(div);
+}
+
+function showReport(container, r) {
+  const div = document.createElement("div");
+  div.className = "report";
+  const h = document.createElement("h3");
+  h.textContent = `Review of ${arch.name}: ${r.findings.length} findings`;
+  const summary = document.createElement("div");
+  summary.textContent = r.summary;
+  div.append(h, summary);
+  if (r.priorities?.length) {
+    const ol = document.createElement("ol");
+    for (const p of r.priorities) { const li = document.createElement("li"); li.textContent = p; ol.appendChild(li); }
+    div.appendChild(ol);
+  }
+  for (const f of r.findings) showFinding(div, f);
+  container.appendChild(div);
+  // Color every component that a finding names, by its most severe finding
+  highlight = new Map();
+  for (const f of [...r.findings].reverse()) for (const k of f.components) highlight.set(k, SEVERITY_COLORS[f.severity]);
+  if (!highlight.size) highlight = null;
+  paint();
+}
+
+$("reviewBtn").addEventListener("click", async () => {
+  const btn = $("reviewBtn");
+  btn.disabled = true;
+  addMessage(`Review the architecture "${arch.name}"`, "user");
+  const pending = addMessage("", "bot");
+  const steps = document.createElement("div");
+  steps.className = "steps";
+  pending.appendChild(steps);
+  const start = performance.now();
+  try {
+    const res = await fetch(`/api/architectures/${arch.id}/review/stream`, { method: "POST" });
+    if (!res.ok) {
+      pending.classList.add("error");
+      pending.appendChild(document.createTextNode(await errorText(res)));
+      return;
+    }
+    await readEvents(res, ev => {
+      if (ev.type === "step") addStep(steps, ev);
+      else if (ev.type === "findings") addStep(steps, { agent: ev.agent, text: `submitted ${ev.findings.length} findings` });
+      else if (ev.type === "report") {
+        showReport(pending, ev);
+        if (ev.sources.length) showSources(pending, ev.sources);
+        showMetrics(pending, { ...ev.metrics, total_ms: ev.metrics.total_ms, model_calls: ev.model_calls });
+      } else if (ev.type === "error") {
+        pending.classList.add("error");
+        pending.appendChild(document.createTextNode(ev.text));
+      }
+    });
+  } catch {
+    pending.appendChild(document.createTextNode("Cannot reach the backend. Is uvicorn running?"));
+  } finally {
+    btn.disabled = !agentReady;
+    messages.scrollTop = messages.scrollHeight;
+  }
+});
+
+async function checkAgent() {
+  try {
+    const s = await (await fetch("/api/agent/status")).json();
+    agentReady = s.available;
+    demo = s.demo;
+    if (s.chat_provider === "gemini") engineSelect.querySelector('option[value="local"]').textContent = `RAG (${s.model})`;
+    const opt = engineSelect.querySelector('option[value="agent"]');
+    opt.disabled = !agentReady;
+    opt.textContent = agentReady ? `Agent (${s.model})` : "Agent (no Gemini key)";
+  } catch { agentReady = false; }
+  $("reviewBtn").disabled = !agentReady;
+  $("reviewBtn").title = agentReady ? "Multi-agent architecture review (Gemini)" : "Put GEMINI_API_KEY in the .env file to use the review";
+}
+
+await checkAgent();
+await loadArchitectureList();
+await loadArchitecture("default");
+</script>
+</body>
+</html>

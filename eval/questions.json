@@ -1,0 +1,23 @@
+[
+  {"question": "What are the design principles for reliability?", "component": null, "expect": ["automatically recover", "scale horizontally", "stop guessing capacity"]},
+  {"question": "What is the security pillar?", "component": null, "expect": ["security pillar"]},
+  {"question": "How do I encrypt data at rest?", "component": null, "expect": ["encrypt"]},
+  {"question": "How do I apply least privilege?", "component": null, "expect": ["least privilege"]},
+  {"question": "What is chaos engineering?", "component": null, "expect": ["chaos", "game day", "fault injection"]},
+  {"question": "How do I route users to healthy endpoints?", "component": "dns", "expect": ["route 53", "dns"]},
+  {"question": "How do I deliver content with low latency?", "component": "cdn", "expect": ["cloudfront", "edge location", "content delivery"]},
+  {"question": "How do I protect against DDoS attacks?", "component": "firewall", "expect": ["ddos", "shield"]},
+  {"question": "How do I control network traffic to my instances?", "component": "firewall", "expect": ["security group", "network acl", "firewall"]},
+  {"question": "How do health checks work?", "component": "load_balancer", "expect": ["health check"]},
+  {"question": "How do I distribute traffic across servers?", "component": "load_balancer", "expect": ["load balanc"]},
+  {"question": "How do I scale my workload automatically?", "component": "kubernetes", "expect": ["auto scaling", "elasticity", "scale horizontally"]},
+  {"question": "How do I deploy changes safely?", "component": "kubernetes", "expect": ["canary", "blue/green", "rollback", "roll back"]},
+  {"question": "How does caching improve performance?", "component": "cache", "expect": ["cach"]},
+  {"question": "How do I back up my data?", "component": "database", "expect": ["backup", "back up"]},
+  {"question": "How do I make the database highly available?", "component": "database", "expect": ["multi-az", "failover", "replica"]},
+  {"question": "How do I decouple components?", "component": "queue", "expect": ["decoupl", "loosely coupled", "queue"]},
+  {"question": "How do I manage the data lifecycle?", "component": "storage", "expect": ["lifecycle"]},
+  {"question": "How do I reduce storage cost?", "component": "storage", "expect": ["storage class", "glacier", "storage tier"]},
+  {"question": "How do I monitor workload health?", "component": "monitoring", "expect": ["cloudwatch", "monitor"]},
+  {"question": "How do I set alarms on metrics?", "component": "monitoring", "expect": ["alarm"]}
+]

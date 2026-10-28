@@ -1,0 +1,11 @@
+# Run the hosted version on your own computer:
+#   docker compose up --build
+# Then open http://localhost:7860. GEMINI_API_KEY comes from the .env file.
+services:
+  app:
+    build: .
+    env_file: .env
+    environment:
+      - DEMO_MODE=${DEMO_MODE:-0}
+    ports:
+      - "7860:7860"

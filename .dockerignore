@@ -1,0 +1,10 @@
+venv/
+db/
+logs/
+architectures/
+data/
+__pycache__/
+.pytest_cache/
+tests/
+.github/
+.env

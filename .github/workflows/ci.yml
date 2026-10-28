@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+      - run: pip install -r requirements-dev.txt
+      # The tests replace Ollama and Gemini with fakes, so no models or keys are needed here.
+      - run: pytest -q
+
+  docker:
+    # Builds the hosting image (the same one Hugging Face Spaces builds), including the document index.
+    # MAX_PAGES=20 keeps this check short; the real build uses 200 pages.
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build --build-arg MAX_PAGES=20 -t cloud-explorer .
+      - name: Smoke test
+        run: |
+          docker run -d --name app -p 7860:7860 cloud-explorer
+          for i in $(seq 1 60); do curl -sf http://localhost:7860/api/architectures && break; sleep 2; done
+          curl -sf http://localhost:7860/api/architectures/default > /dev/null
+          curl -sf http://localhost:7860/ | grep -q "Cloud Architecture Explorer"
+      - if: failure()
+        run: docker logs app || true

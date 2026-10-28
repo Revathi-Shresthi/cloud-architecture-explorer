@@ -1,0 +1,178 @@
+# Example Kubernetes web shop: Ingress -> web -> api -> postgres / redis / rabbitmq -> worker -> minio,
+# with Prometheus and a NetworkPolicy. Import it in the app with "Import IaC" to see it in 3D.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: shop
+spec:
+  rules:
+    - host: shop.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service: { name: web, port: { number: 80 } }
+          - path: /api
+            pathType: Prefix
+            backend:
+              service: { name: api, port: { number: 8080 } }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: web }
+spec:
+  replicas: 2
+  selector: { matchLabels: { app: web } }
+  template:
+    metadata: { labels: { app: web, tier: frontend } }
+    spec:
+      containers:
+        - name: web
+          image: ghcr.io/example/shop-web:1.4.0
+          env:
+            - { name: API_URL, value: "http://api:8080" }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: web }
+spec:
+  selector: { app: web }
+  ports: [{ port: 80 }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: api }
+spec:
+  replicas: 3
+  selector: { matchLabels: { app: api } }
+  template:
+    metadata: { labels: { app: api, tier: backend } }
+    spec:
+      containers:
+        - name: api
+          image: ghcr.io/example/shop-api:2.1.3
+          env:
+            - { name: DATABASE_URL, value: "postgres://shop@postgres:5432/shop" }
+            - { name: REDIS_HOST, value: redis }
+            - { name: AMQP_URL, value: "amqp://rabbitmq:5672" }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: api }
+spec:
+  selector: { app: api }
+  ports: [{ port: 8080 }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: worker }
+spec:
+  replicas: 2
+  selector: { matchLabels: { app: worker } }
+  template:
+    metadata: { labels: { app: worker, tier: backend } }
+    spec:
+      containers:
+        - name: worker
+          image: ghcr.io/example/shop-worker:2.1.3
+          env:
+            - { name: AMQP_URL, value: "amqp://rabbitmq:5672" }
+            - { name: DATABASE_URL, value: "postgres://shop@postgres:5432/shop" }
+            - { name: S3_ENDPOINT, value: "http://minio:9000" }
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata: { name: postgres }
+spec:
+  serviceName: postgres
+  selector: { matchLabels: { app: postgres } }
+  template:
+    metadata: { labels: { app: postgres, tier: data } }
+    spec:
+      containers:
+        - { name: postgres, image: "postgres:16" }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: postgres }
+spec:
+  selector: { app: postgres }
+  ports: [{ port: 5432 }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: redis }
+spec:
+  selector: { matchLabels: { app: redis } }
+  template:
+    metadata: { labels: { app: redis, tier: data } }
+    spec:
+      containers:
+        - { name: redis, image: "redis:7" }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: redis }
+spec:
+  selector: { app: redis }
+  ports: [{ port: 6379 }]
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata: { name: rabbitmq }
+spec:
+  serviceName: rabbitmq
+  selector: { matchLabels: { app: rabbitmq } }
+  template:
+    metadata: { labels: { app: rabbitmq, tier: data } }
+    spec:
+      containers:
+        - { name: rabbitmq, image: "rabbitmq:3-management" }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: rabbitmq }
+spec:
+  selector: { app: rabbitmq }
+  ports: [{ port: 5672 }]
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata: { name: minio }
+spec:
+  serviceName: minio
+  selector: { matchLabels: { app: minio } }
+  template:
+    metadata: { labels: { app: minio, tier: data } }
+    spec:
+      containers:
+        - { name: minio, image: "minio/minio:latest", args: ["server", "/data"] }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: minio }
+spec:
+  selector: { app: minio }
+  ports: [{ port: 9000 }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: prometheus }
+spec:
+  selector: { matchLabels: { app: prometheus } }
+  template:
+    metadata: { labels: { app: prometheus } }
+    spec:
+      containers:
+        - { name: prometheus, image: "prom/prometheus:v2.53.0" }
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: { name: data-isolation }
+spec:
+  podSelector: { matchLabels: { tier: data } }
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector: { matchLabels: { tier: backend } }
