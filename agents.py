@@ -51,7 +51,7 @@ load_env_file()
 GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.1-flash-lite")
 # Used in turn when a model is busy (503) or out of free-tier quota (429); quotas are per model.
 GEMINI_FALLBACK_MODELS = [m.strip() for m in os.environ.get(
-    "GEMINI_FALLBACK_MODELS", "gemini-3.5-flash-lite,gemini-3-flash-preview").split(",") if m.strip()]
+    "GEMINI_FALLBACK_MODELS", "gemini-3-flash-preview,gemini-3.5-flash-lite").split(",") if m.strip()]
 RETRY_CODES = (429, 500, 503, 504)
 REQUEST_TIMEOUT_MS = 60_000
 _client = None
