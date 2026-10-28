@@ -1,7 +1,6 @@
-# Small container for Render (free plan: 512 MB RAM). No Ollama: embeddings and answers use Gemini.
-# Render gives the service's environment variables to the build as build arguments, so the
-# document index is built here with GEMINI_API_KEY. Without a key (for example in CI) the index is
-# skipped and the app starts with no documents.
+# Small container for Render (free plan: 512 MB RAM). No Ollama: embeddings come from a small ONNX
+# model in the app process (fastembed, bge-small-en-v1.5), answers and agents from Gemini.
+# The document index is built here and needs no key; GEMINI_API_KEY is only read at run time.
 FROM python:3.13-slim
 RUN apt-get update \
  && apt-get install -y --no-install-recommends curl ca-certificates \
@@ -12,7 +11,8 @@ ENV HOME=/home/user \
     PATH=/home/user/.local/bin:$PATH \
     PYTHONUNBUFFERED=1 \
     CHAT_PROVIDER=gemini \
-    EMBED_PROVIDER=gemini \
+    EMBED_PROVIDER=fastembed \
+    FASTEMBED_CACHE_PATH=/home/user/fastembed-cache \
     DEMO_MODE=1
 WORKDIR /home/user/app
 
@@ -21,14 +21,12 @@ RUN pip install --no-cache-dir --user -r requirements.txt
 
 COPY --chown=user . .
 
-ARG GEMINI_API_KEY
+# Build the document index: download the PDF and the embedding model, run ingest.py.
 ARG DOC_URL=https://docs.aws.amazon.com/pdfs/wellarchitected/latest/framework/wellarchitected-framework.pdf
 ARG MAX_PAGES=200
-RUN if [ -n "$GEMINI_API_KEY" ]; then \
-      mkdir -p data \
-      && curl -fsSL -o data/wellarchitected-framework.pdf "$DOC_URL" \
-      && GEMINI_API_KEY="$GEMINI_API_KEY" python ingest.py data/ --max-pages "$MAX_PAGES" \
-      && rm -rf data; \
-    else echo "No GEMINI_API_KEY at build time: no document index"; fi
+RUN mkdir -p data \
+ && curl -fsSL -o data/wellarchitected-framework.pdf "$DOC_URL" \
+ && python ingest.py data/ --max-pages "$MAX_PAGES" \
+ && rm -rf data
 
 CMD ["sh", "-c", "exec uvicorn app:app --host 0.0.0.0 --port ${PORT:-10000}"]

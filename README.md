@@ -102,11 +102,13 @@ turns off deletes, and keeps the 25 newest imports.
 
 ### Render (free plan)
 
-`Dockerfile.render` is a smaller image with no Ollama: embeddings also come from Gemini
-(`EMBED_PROVIDER=gemini`, `embeddings.py`), so the app uses about 150 MB of the 512 MB.
+`Dockerfile.render` is a smaller image with no Ollama: embeddings come from a small ONNX model in the
+app process (`EMBED_PROVIDER=fastembed`, bge-small-en-v1.5, `embeddings.py`), so the app uses about
+300 MB of the 512 MB. With this model, hybrid search reached Hit@4 76% and MRR 0.61 on the evaluation set.
+(Gemini embeddings also work, `EMBED_PROVIDER=gemini`, but the free tier allows only 1000 per day.)
 
 1. On https://render.com, click **New → Blueprint** and choose this GitHub repository (`render.yaml`).
-2. Enter `GEMINI_API_KEY` when Render asks. The build uses it to make the document index (about 4 minutes).
+2. Enter `GEMINI_API_KEY` when Render asks. The build makes the document index without the key (a few minutes).
 3. The free service sleeps after 15 minutes without visitors; the first request then takes about 1 minute.
    Imported architectures are lost when it restarts.
 

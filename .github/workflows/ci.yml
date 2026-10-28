@@ -35,12 +35,12 @@ jobs:
         run: docker logs app || true
 
   render:
-    # Builds the Render image without a key (no document index) and checks that the app starts.
+    # Builds the Render image (document index included; MAX_PAGES=20 keeps it short) and checks that the app starts.
     needs: test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: docker build -f Dockerfile.render -t cloud-explorer-render .
+      - run: docker build -f Dockerfile.render --build-arg MAX_PAGES=20 -t cloud-explorer-render .
       - name: Smoke test
         run: |
           docker run -d --name app -p 10000:10000 cloud-explorer-render
