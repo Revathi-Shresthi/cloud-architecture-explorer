@@ -47,6 +47,7 @@ class FakeGemini:
 
     def generate_content(self, model, contents, config):
         self.configs.append(config)
+        self.used = getattr(self, "used", []) + [model]
         item = self.script.pop(0)
         if isinstance(item, Exception):
             raise item
@@ -115,6 +116,7 @@ def test_last_step_forces_a_text_answer(gemini):
 def test_rate_limit_is_retried_after_the_given_delay(gemini, monkeypatch):
     waits = []
     monkeypatch.setattr(agents.time, "sleep", waits.append)
+    monkeypatch.setattr(agents, "GEMINI_FALLBACK_MODELS", [])
     error = errors.ClientError(429, {"error": {"code": 429, "message": "Quota exceeded", "status": "RESOURCE_EXHAUSTED",
                                                "details": [{"retryDelay": "7s"}]}})
     gemini([error, reply(text="OK")])
@@ -122,6 +124,17 @@ def test_rate_limit_is_retried_after_the_given_delay(gemini, monkeypatch):
     assert result.text == "OK"
     assert waits == [8.0]
     assert "rate limit" in events[0]["text"]
+
+
+def test_a_busy_model_is_replaced_by_the_next_model(gemini, monkeypatch):
+    monkeypatch.setattr(agents.time, "sleep", lambda s: None)
+    monkeypatch.setattr(agents, "GEMINI_FALLBACK_MODELS", ["backup-model"])
+    busy = errors.ServerError(503, {"error": {"code": 503, "message": "high demand", "status": "UNAVAILABLE"}})
+    fake = gemini([busy, reply(text="OK")])
+    events, result = run(agents.generate(["q"], types.GenerateContentConfig(), "Tutor"))
+    assert result.text == "OK"
+    assert fake.used == [agents.GEMINI_MODEL, "backup-model"]
+    assert "Trying backup-model" in events[0]["text"]
 
 
 def test_critical_components_in_the_terraform_example():

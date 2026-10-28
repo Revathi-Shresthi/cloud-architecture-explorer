@@ -25,7 +25,7 @@ import ollama
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from google.genai import types
+from google.genai import errors, types
 from pydantic import BaseModel
 
 import agents
@@ -232,11 +232,23 @@ def chat_stream(messages: list):
         contents = [types.Content(role="model" if m["role"] == "assistant" else "user",
                                   parts=[types.Part.from_text(text=m["content"])]) for m in messages[1:]]
         config = types.GenerateContentConfig(system_instruction=messages[0]["content"], temperature=0.3)
-        start, usage = time.perf_counter(), None
-        for chunk in agents.get_client().models.generate_content_stream(
-                model=agents.GEMINI_MODEL, contents=contents, config=config):
-            usage = chunk.usage_metadata or usage
-            yield chunk.text or "", None
+        start, usage, sent = time.perf_counter(), None, False
+        models = agents.models_to_try()
+        for attempt, model in enumerate(models):
+            try:
+                for chunk in agents.get_client().models.generate_content_stream(
+                        model=model, contents=contents, config=config):
+                    usage = chunk.usage_metadata or usage
+                    sent = sent or bool(chunk.text)
+                    yield chunk.text or "", None
+                break
+            except errors.APIError as e:
+                # Retry only before the first token: the page cannot take back text it has shown.
+                wait = None if sent else agents.retry_wait(
+                    e, attempt, model, models[attempt + 1] if attempt + 1 < len(models) else None)
+                if wait is None:
+                    raise
+                time.sleep(wait[0])
         tokens = usage.candidates_token_count if usage else None
         if tokens:
             yield "", {"tokens": tokens, "tokens_per_s": round(tokens / (time.perf_counter() - start), 1)}

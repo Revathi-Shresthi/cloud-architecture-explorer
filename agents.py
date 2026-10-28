@@ -49,6 +49,10 @@ load_env_file()
 # Flash-Lite: answered in about 1 s in tests, with higher free-tier limits. The larger Flash models
 # were often overloaded (503) or timed out (504) for free-tier keys.
 GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.1-flash-lite")
+# Used in turn when a model is busy (503) or out of free-tier quota (429); quotas are per model.
+GEMINI_FALLBACK_MODELS = [m.strip() for m in os.environ.get(
+    "GEMINI_FALLBACK_MODELS", "gemini-3.5-flash-lite,gemini-3-flash-preview").split(",") if m.strip()]
+RETRY_CODES = (429, 500, 503, 504)
 REQUEST_TIMEOUT_MS = 60_000
 _client = None
 
@@ -74,18 +78,35 @@ def _retry_delay(error: errors.APIError, attempt: int) -> float:
     return min(float(m[1]) + 1 if m else 5 * 2 ** attempt, MAX_WAIT_S)
 
 
+def models_to_try() -> list:
+    """The main model, then each fallback, then the main model again: one entry per attempt."""
+    models = [GEMINI_MODEL] + [m for m in GEMINI_FALLBACK_MODELS if m != GEMINI_MODEL]
+    return [models[i % len(models)] for i in range(max(MAX_RETRIES + 1, len(models)))]
+
+
+def retry_wait(error: errors.APIError, attempt: int, model: str, next_model: str):
+    """None if the error is final; else (seconds to wait, message for the page)."""
+    if error.code not in RETRY_CODES or next_model is None:
+        return None
+    what = "Free-tier rate limit reached" if error.code == 429 else "Gemini is busy"
+    if next_model != model:
+        return 1.0, f"{what} on {model}. Trying {next_model}."
+    delay = _retry_delay(error, attempt)
+    return delay, f"{what}. Waiting {delay:.0f} s, then trying again."
+
+
 def generate(contents: list, config: types.GenerateContentConfig, agent: str):
-    """One model call, with retries. Yields a progress event while it waits for a rate limit."""
-    for attempt in range(MAX_RETRIES + 1):
+    """One model call, with retries and fallback models. Yields a progress event before each retry."""
+    models = models_to_try()
+    for attempt, model in enumerate(models):
         try:
-            return get_client().models.generate_content(model=GEMINI_MODEL, contents=contents, config=config)
+            return get_client().models.generate_content(model=model, contents=contents, config=config)
         except errors.APIError as e:
-            if e.code not in (429, 500, 503, 504) or attempt == MAX_RETRIES:
+            wait = retry_wait(e, attempt, model, models[attempt + 1] if attempt + 1 < len(models) else None)
+            if wait is None:
                 raise
-            delay = _retry_delay(e, attempt)
-            what = "Free-tier rate limit reached" if e.code == 429 else "Gemini is busy"
-            yield {"type": "step", "agent": agent, "text": f"{what}. Waiting {delay:.0f} s, then trying again."}
-            time.sleep(delay)
+            yield {"type": "step", "agent": agent, "text": wait[1]}
+            time.sleep(wait[0])
 
 
 # ---------- Tools ----------

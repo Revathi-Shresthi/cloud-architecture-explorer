@@ -4,6 +4,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from google.genai import errors
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
@@ -24,11 +25,15 @@ class FakeRetriever:
 
 
 class FakeGeminiStream:
-    def __init__(self):
+    def __init__(self, busy: int = 0):
         self.models = self
         self.kwargs = None
+        self.busy, self.used = busy, []
 
     def generate_content_stream(self, model, contents, config):
+        self.used.append(model)
+        if len(self.used) <= self.busy:
+            raise errors.ServerError(503, {"error": {"code": 503, "message": "high demand", "status": "UNAVAILABLE"}})
         self.kwargs = {"model": model, "contents": contents, "config": config}
         usage = SimpleNamespace(candidates_token_count=12)
         yield SimpleNamespace(text="The database fails over to a replica [1]. ", usage_metadata=None)
@@ -54,6 +59,17 @@ def test_rag_answers_can_come_from_gemini(client, monkeypatch):
     assert r["metrics"]["tokens"] == 12
     assert [c.role for c in fake.kwargs["contents"]] == ["user", "model", "user"]
     assert "cloud architecture tutor" in fake.kwargs["config"].system_instruction
+
+
+def test_busy_gemini_model_falls_back_before_the_first_token(client, monkeypatch):
+    fake = FakeGeminiStream(busy=1)
+    monkeypatch.setattr(app_module, "CHAT_PROVIDER", "gemini")
+    monkeypatch.setattr(agents, "get_client", lambda: fake)
+    monkeypatch.setattr(agents, "GEMINI_FALLBACK_MODELS", ["backup-model"])
+    monkeypatch.setattr(app_module.time, "sleep", lambda s: None)
+    r = client.post("/api/ask", json={"question": "What breaks?", "component": "database"}).json()
+    assert r["answer"].startswith("The database fails over")
+    assert fake.used == [agents.GEMINI_MODEL, "backup-model"]
 
 
 def test_rate_limiter_per_visitor_and_per_day():
